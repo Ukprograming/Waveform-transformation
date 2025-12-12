@@ -196,6 +196,7 @@
             width: 100%;
             height: 100%;
             display: block;
+            touch-action: none;
         }
 
         .panel-label {
@@ -479,13 +480,33 @@
         }
 
         // --- Drawing helpers ---
-        function resizeCanvas(canvas) {
+        function resizeCanvas(canvas, ctx) {
             const rect = canvas.parentElement.getBoundingClientRect();
-            if (canvas.width !== rect.width || canvas.height !== rect.height) {
-                canvas.width = rect.width;
-                canvas.height = rect.height;
-            }
+            const dpr = window.devicePixelRatio || 1;
+
+            const cssW = rect.width;
+            const cssH = rect.height;
+
+            const needResize =
+                canvas.style.width !== cssW + "px" ||
+                canvas.style.height !== cssH + "px" ||
+                canvas.width !== Math.round(cssW * dpr) ||
+                canvas.height !== Math.round(cssH * dpr);
+
+            if (!needResize) return;
+
+            // CSS上のサイズ
+            canvas.style.width = cssW + "px";
+            canvas.style.height = cssH + "px";
+
+            // 実ピクセル（Retina対応）
+            canvas.width = Math.round(cssW * dpr);
+            canvas.height = Math.round(cssH * dpr);
+
+            // 以降の描画を「CSSピクセル座標系」に戻す
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
+
 
         function worldToScreen(val, type, w, h) {
             const midY = h / 2;
@@ -530,8 +551,9 @@
 
         // --- Draw y-x ---
         function drawYX() {
-            const w = cvsYX.width;
-            const h = cvsYX.height;
+            const w = cvsYX.clientWidth;
+            const h = cvsYX.clientHeight;
+
             drawGrid(ctxYX, w, h, 'x (m)', 'y (m)');
 
             const quizOnYX = (state.quizMode === 'yx');
@@ -590,8 +612,9 @@
 
         // --- Draw y-t ---
         function drawYT() {
-            const w = cvsYT.width;
-            const h = cvsYT.height;
+            const w = cvsYT.clientWidth;
+            const h = cvsYT.clientHeight;
+
             drawGrid(ctxYT, w, h, 't (s)', 'y (m)');
 
             const quizOnYT = (state.quizMode === 'yt');
@@ -654,19 +677,27 @@
 
         let isDragging = false;
         let dragMode = null;  // 'x' | 'phase-yx' | 'phase-yt'
-        let dragAnchorXWorld = 0; // y-x でドラッグを開始した x（世界座標）
-        let dragAnchorTWorld = 0; // y-t でドラッグを開始した t（世界座標）
-        let dragStartPhase = 0; // ドラッグ開始時の位相
+        let dragAnchorXWorld = 0; // y-x の基準 x（世界座標）
+        let dragAnchorTWorld = 0; // y-t の基準 t（世界座標）
+        let dragStartStep = 0;    // ★追加：λ/4 または T/4 のステップ整数
 
+
+
+        function getClientXY(e) {
+            // pointer/mouse/touch どれでも拾う
+            if (e.touches && e.touches.length > 0) {
+                return { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY };
+            }
+            return { clientX: e.clientX, clientY: e.clientY };
+        }
 
         function getPointYX(e) {
             const rect = cvsYX.getBoundingClientRect();
-            const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
-            const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+            const { clientX, clientY } = getClientXY(e);
             const px = clientX - rect.left;
             const py = clientY - rect.top;
-            const w = cvsYX.width;
-            const h = cvsYX.height;
+            const w = cvsYX.clientWidth;
+            const h = cvsYX.clientHeight;
             return {
                 x: worldToScreen(px, 'rx', w, h),
                 y: worldToScreen(py, 'ry', w, h)
@@ -675,17 +706,17 @@
 
         function getPointYT(e) {
             const rect = cvsYT.getBoundingClientRect();
-            const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
-            const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+            const { clientX, clientY } = getClientXY(e);
             const px = clientX - rect.left;
             const py = clientY - rect.top;
-            const w = cvsYT.width;
-            const h = cvsYT.height;
+            const w = cvsYT.clientWidth;
+            const h = cvsYT.clientHeight;
             return {
                 t: worldToScreen(px, 'rx', w, h),
                 y: worldToScreen(py, 'ry', w, h)
             };
         }
+
 
         // 通常モード：x の位置をドラッグで変える
         function handleXDrag(e) {
@@ -706,37 +737,36 @@
         // y-x グラフでの位相ドラッグ（左右にドラッグ）
         function handlePhaseDragYX(e) {
             const pt = getPointYX(e);
-            const deltaX = pt.x - dragAnchorXWorld;   // ドラッグ開始位置からどれだけ横に動いたか
+            const deltaX = pt.x - dragAnchorXWorld;
 
             const lambda = state.answerLambda;
-            const sign = state.direction === 1 ? -1 : 1;
+            const stepX = lambda / 4;                 // λ/4
+            const deltaStep = Math.round(deltaX / stepX);
 
-            // Δφ = - 2π * sign * Δx / λ
-            let newPhase = dragStartPhase - 2 * Math.PI * sign * (deltaX / lambda);
+            // ★ここが重要：direction の符号を入れる
+            const sign = (state.direction === 1) ? -1 : 1; // x正方向なら -1
 
-            // π/8刻みにスナップ
-            const step = Math.PI / 8;
-            newPhase = Math.round(newPhase / step) * step;
-
-            state.answerPhase = newPhase;
+            // ドラッグ右(+) → 波形が右へ動く、を常に満たす
+            state.answerPhase = (dragStartStep - sign * deltaStep) * (Math.PI / 2);
         }
 
-        // y-t グラフでの位相ドラッグ（左右にドラッグ）
+
+
+
         function handlePhaseDragYT(e) {
             const pt = getPointYT(e);
-            const deltaT = pt.t - dragAnchorTWorld;   // ドラッグ開始位置からどれだけ横に動いたか
+            const deltaT = pt.t - dragAnchorTWorld;
 
             const period = state.answerPeriod;
 
-            // Δφ = - 2π * Δt / T
-            let newPhase = dragStartPhase - 2 * Math.PI * (deltaT / period);
+            const stepT = period / 4;                  // T/4
+            const deltaStep = Math.round(deltaT / stepT);
 
-            // π/8刻みにスナップ
-            const step = Math.PI / 8;
-            newPhase = Math.round(newPhase / step) * step;
-
-            state.answerPhase = newPhase;
+            // Δtが増えてもズレない（整数 × π/2）
+            state.answerPhase = (dragStartStep - deltaStep) * (Math.PI / 2);
         }
+
+
 
 
         function handlePointerStartYX(e) {
@@ -744,9 +774,13 @@
             if (state.quizMode === 'yx') {
                 dragMode = 'phase-yx';
                 const pt = getPointYX(e);
-                dragAnchorXWorld = pt.x;          // 横ドラッグの基準 x
-                dragStartPhase = state.answerPhase; // ドラッグ開始時の位相
+                dragAnchorXWorld = pt.x;
+
+                // ★位相を「ステップ整数」に変換して保存
+                dragStartStep = Math.round(state.answerPhase / (Math.PI / 2));
+
                 handlePhaseDragYX(e);
+
             } else {
                 dragMode = 'x';
                 handleXDrag(e);
@@ -768,9 +802,13 @@
             isDragging = true;
             dragMode = 'phase-yt';
             const pt = getPointYT(e);
-            dragAnchorTWorld = pt.t;           // 横ドラッグの基準 t
-            dragStartPhase = state.answerPhase;
+            dragAnchorTWorld = pt.t;
+
+            // ★位相を「ステップ整数」に変換して保存
+            dragStartStep = Math.round(state.answerPhase / (Math.PI / 2));
+
             handlePhaseDragYT(e);
+
             e.preventDefault();
         }
 
@@ -786,15 +824,47 @@
             dragMode = null;
         }
 
+        function onPointerDownYX(e) {
+            // 右クリック等は無視（PC向け）
+            if (e.pointerType === "mouse" && e.button !== 0) return;
+
+            cvsYX.setPointerCapture(e.pointerId);
+            handlePointerStartYX(e);
+        }
+
+        function onPointerMoveYX(e) {
+            handlePointerMoveYX(e);
+        }
+
+        function onPointerUpOrCancel(e) {
+            // どちらのキャンバスでも共通終了
+            handlePointerEnd();
+        }
+
+        function onPointerDownYT(e) {
+            if (e.pointerType === "mouse" && e.button !== 0) return;
+
+            cvsYT.setPointerCapture(e.pointerId);
+            handlePointerStartYT(e);
+        }
+
+        function onPointerMoveYT(e) {
+            handlePointerMoveYT(e);
+        }
+
+        // ★ iOS/PC両対応：Pointer Events に一本化
+        cvsYX.addEventListener("pointerdown", onPointerDownYX);
+        cvsYX.addEventListener("pointermove", onPointerMoveYX);
+        cvsYX.addEventListener("pointerup", onPointerUpOrCancel);
+        cvsYX.addEventListener("pointercancel", onPointerUpOrCancel);
+
+        cvsYT.addEventListener("pointerdown", onPointerDownYT);
+        cvsYT.addEventListener("pointermove", onPointerMoveYT);
+        cvsYT.addEventListener("pointerup", onPointerUpOrCancel);
+        cvsYT.addEventListener("pointercancel", onPointerUpOrCancel);
+
+
         // イベント登録
-        cvsYX.addEventListener('mousedown', handlePointerStartYX);
-        window.addEventListener('mousemove', handlePointerMoveYX);
-        window.addEventListener('mouseup', handlePointerEnd);
-
-        cvsYX.addEventListener('touchstart', handlePointerStartYX, { passive: false });
-        cvsYX.addEventListener('touchmove', handlePointerMoveYX, { passive: false });
-        cvsYX.addEventListener('touchend', handlePointerEnd);
-
         cvsYT.addEventListener('mousedown', handlePointerStartYT);
         window.addEventListener('mousemove', handlePointerMoveYT);
         window.addEventListener('mouseup', handlePointerEnd);
@@ -805,7 +875,7 @@
 
         // ===== 整数解のみ許す：v, λ, T の同期 =====
         const PERIOD_MIN = 1;
-        const PERIOD_MAX = 5;
+        const PERIOD_MAX = 8;
 
         // λは v×T なので、Tの範囲から λの範囲を決める
         function updateAllowedPairsBySpeed() {
@@ -869,32 +939,51 @@
             if (state.quizMode === type) {
                 // クイズ終了
                 state.quizMode = null;
+                // ★終了時もレンジを戻して同期（任意だけど安全）
+                updateAnswerAllowedPairsBySpeed();
             } else {
                 // ===== クイズ開始 =====
                 state.quizMode = type;
+
+                // ★まず回答側レンジを速度に合わせる
+                updateAnswerAllowedPairsBySpeed();
+
                 randomizeAnswerParams();
 
 
                 /* ---------- λ（波長）をランダムにずらす ---------- */
+                const LAMBDA_MIN = state.velocity * 1;        // T最小=1
+                const LAMBDA_MAX = state.velocity * PERIOD_MAX; // ★あなたが導入した PERIOD_MAX を使う
+
                 const lambdaChoices = [];
-                for (let d of [-2, -1, 1, 2]) {
-                    const v = state.lambda + d;
-                    if (v >= 2 && v <= 10) lambdaChoices.push(v);
+                for (let d of [-3, -2, -1, 1, 2, 3]) {
+                    const candidate = state.lambda + d * state.velocity; // ★整数制約に合わせて v刻みでずらす
+                    if (candidate >= LAMBDA_MIN && candidate <= LAMBDA_MAX) {
+                        lambdaChoices.push(candidate);
+                    }
                 }
-                state.answerLambda =
-                    lambdaChoices[Math.floor(Math.random() * lambdaChoices.length)];
+
+                // 候補が空にならない保険（端っこ対策）
+                if (lambdaChoices.length === 0) {
+                    lambdaChoices.push(Math.max(LAMBDA_MIN, Math.min(LAMBDA_MAX, state.lambda)));
+                }
+
+                state.answerLambda = lambdaChoices[Math.floor(Math.random() * lambdaChoices.length)];
+
 
                 /* ---------- T（周期）をランダムにずらす ---------- */
                 const periodChoices = [];
                 for (let d of [-2, -1, 1, 2]) {
-                    const v = state.period + d;
-                    if (v >= 1 && v <= 5) periodChoices.push(v);
+                    const candidate = state.period + d;
+                    if (candidate >= PERIOD_MIN && candidate <= PERIOD_MAX) periodChoices.push(candidate);
                 }
-                state.answerPeriod =
-                    periodChoices[Math.floor(Math.random() * periodChoices.length)];
+                if (periodChoices.length === 0) periodChoices.push(state.period);
+                state.answerPeriod = periodChoices[Math.floor(Math.random() * periodChoices.length)];
+                state.answerLambda = state.velocity * state.answerPeriod; // ★これが一番安全（整数制約を絶対守れる）
+
 
                 /* ---------- 位相 φ をランダム ---------- */
-                const phaseStep = Math.PI / 4;
+                const phaseStep = Math.PI / 2;
                 const phaseChoices = [-3, -2, -1, 1, 2, 3];
                 const k = phaseChoices[Math.floor(Math.random() * phaseChoices.length)];
                 state.answerPhase = k * phaseStep;
@@ -1002,6 +1091,7 @@
             els.valV.textContent = String(state.velocity);
 
             updateAllowedPairsBySpeed(); // ←ここで λ=vT に強制
+            updateAnswerAllowedPairsBySpeed(); // ★追加
 
             // クイズ中は正解パラメータを触れない想定なので、ここでは回答側は触らない
         });
@@ -1057,14 +1147,41 @@
 
 
         // 回答側スライダー
-        els.ansLambda.addEventListener('input', (e) => {
-            state.answerLambda = parseFloat(e.target.value);
-            els.ansLambdaDisp.textContent = state.answerLambda.toFixed(1);
-        });
+        // 回答Tを動かしたら λ=vT にする
         els.ansPeriod.addEventListener('input', (e) => {
-            state.answerPeriod = parseFloat(e.target.value);
-            els.ansPeriodDisp.textContent = state.answerPeriod.toFixed(1);
+            const v = state.velocity;
+            let T = parseInt(e.target.value, 10);
+            T = Math.max(PERIOD_MIN, Math.min(PERIOD_MAX, T));
+
+            state.answerPeriod = T;
+            state.answerLambda = v * T;
+
+            els.ansPeriod.value = state.answerPeriod;
+            els.ansLambda.value = state.answerLambda;
+            els.ansPeriodDisp.textContent = String(state.answerPeriod);
+            els.ansLambdaDisp.textContent = String(state.answerLambda);
         });
+
+        // 回答λを動かしたら v刻みにスナップ → T=λ/v
+        els.ansLambda.addEventListener('input', (e) => {
+            const v = state.velocity;
+            let lambda = parseInt(e.target.value, 10);
+
+            // v刻みにスナップ
+            lambda = Math.round(lambda / v) * v;
+            lambda = Math.max(v * PERIOD_MIN, Math.min(v * PERIOD_MAX, lambda));
+
+            const T = lambda / v;
+
+            state.answerPeriod = T;
+            state.answerLambda = lambda;
+
+            els.ansLambda.value = state.answerLambda;
+            els.ansPeriod.value = state.answerPeriod;
+            els.ansPeriodDisp.textContent = String(state.answerPeriod);
+            els.ansLambdaDisp.textContent = String(state.answerLambda);
+        });
+
 
         // --- Loop ---
         function updateDisplay() {
@@ -1088,8 +1205,9 @@
                 state.t += dt;
             }
 
-            resizeCanvas(cvsYX);
-            resizeCanvas(cvsYT);
+            resizeCanvas(cvsYX, ctxYX);
+            resizeCanvas(cvsYT, ctxYT);
+
             drawYX();
             drawYT();
             updateDisplay();
@@ -1141,6 +1259,32 @@
                 els.ansPeriod.value = state.answerPeriod;
                 els.ansPeriodDisp.textContent = String(state.answerPeriod);
             }
+        }
+
+        function updateAnswerAllowedPairsBySpeed() {
+            const v = state.velocity;
+
+            // 回答T：整数のみ
+            els.ansPeriod.min = PERIOD_MIN;
+            els.ansPeriod.max = PERIOD_MAX;
+            els.ansPeriod.step = 1;
+
+            // 回答λ：v刻み
+            els.ansLambda.min = v * PERIOD_MIN;
+            els.ansLambda.max = v * PERIOD_MAX;
+            els.ansLambda.step = v;
+
+            // 現在値をレンジ内に収めて同期（λ=vT を強制）
+            let T = Math.round(state.answerPeriod);
+            T = Math.max(PERIOD_MIN, Math.min(PERIOD_MAX, T));
+            state.answerPeriod = T;
+            state.answerLambda = v * T;
+
+            // UI反映
+            els.ansPeriod.value = state.answerPeriod;
+            els.ansLambda.value = state.answerLambda;
+            els.ansPeriodDisp.textContent = String(state.answerPeriod);
+            els.ansLambdaDisp.textContent = String(state.answerLambda);
         }
 
 
