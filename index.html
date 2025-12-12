@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>波のグラフ クイズアプリ</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #e74c3c;
+            --user-line-color: #2ecc71;
+            --bg-color: #f5f6fa;
+            --panel-bg: #ffffff;
+            --text-color: #2c3e50;
+        }
+
+        /* ★ 追加：フルハイト運用の土台 */
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            /* ★ 追加 */
+            overflow: hidden;
+            /* ★ 変更：全体スクロールは止める（右キャンバスがはみ出さない） */
+        }
+
+        /* Header */
+        header {
+            background: var(--panel-bg);
+            padding: 10px 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            flex: 0 0 auto;
+            /* ★ 追加 */
+        }
+
+        .status-bar {
+            font-weight: bold;
+            font-size: 1.1rem;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .hidden-value {
+            background-color: #333;
+            color: #333;
+            border-radius: 4px;
+            padding: 0 5px;
+            user-select: none;
+        }
+
+        /* ===== 左右レイアウト（本体） ===== */
+        .app-body {
+            display: flex;
+            flex: 1 1 auto;
+            min-height: 0;
+            /* ★ 追加：これが無いと右側が縮まらず溢れる */
+            overflow: hidden;
+        }
+
+        /* 左：操作パネル */
+        .side-controls {
+            width: 280px;
+            /* 好きに調整OK */
+            min-width: 260px;
+            background: var(--panel-bg);
+            border-right: 1px solid #ddd;
+            padding: 12px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            /* 左だけ必要に応じてスクロール */
+        }
+
+        /* Controls（左パネル内で縦並び） */
+        .controls {
+            background: var(--panel-bg);
+            padding: 0;
+            /* ★ 変更：左パネルのpaddingに任せる */
+            border-top: none;
+            /* ★ 変更 */
+            display: flex;
+            flex-direction: column;
+            /* ★ 変更：縦並び */
+            gap: 16px;
+            align-items: stretch;
+            justify-content: flex-start;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 150px;
+        }
+
+        .control-group label {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            font-weight: bold;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+            background: #ecf0f1;
+            color: var(--text-color);
+            font-size: 0.9rem;
+        }
+
+        button:hover {
+            background: #dfe6e9;
+        }
+
+        button.active {
+            background: var(--primary-color);
+            color: #fff;
+        }
+
+        .btn-check {
+            background: var(--user-line-color);
+            color: #fff;
+        }
+
+        .btn-check:hover {
+            background: #27ae60;
+        }
+
+        .btn-clear {
+            background: #95a5a6;
+            color: #fff;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        /* 右：キャンバス領域 */
+        .canvas-container {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            /* ★ 追加：これが無いと縦がはみ出しやすい */
+            padding: 10px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow: hidden;
+            /* ★ 追加：右側は常に1画面に収める */
+        }
+
+        /* グラフパネル：2枚で縦を等分 */
+        .graph-panel {
+            background: var(--panel-bg);
+            border-radius: 8px;
+            position: relative;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            width: 100%;
+            touch-action: none;
+            flex: 1 1 0;
+            min-height: 0;
+            /* ★ 追加：flex子要素が縮められるようにする */
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .panel-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            pointer-events: none;
+            border: 1px solid #ddd;
+            z-index: 10;
+        }
+
+        /* Quiz UI Elements */
+        .quiz-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(44, 62, 80, 0.9);
+            color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+            z-index: 20;
+        }
+
+        .quiz-overlay.active {
+            display: block;
+        }
+
+        .quiz-result {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .quiz-detail {
+            font-size: 1rem;
+        }
+
+        .draw-instruction {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--user-line-color);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            display: none;
+            pointer-events: none;
+        }
+
+        .draw-instruction.active {
+            display: block;
+        }
+
+        @media (max-width:768px) {
+            .status-bar {
+                font-size: 0.9rem;
+            }
+        }
+
+        @media (max-width:900px) {
+            .app-body {
+                flex-direction: column;
+            }
+
+            .side-controls {
+                width: 100%;
+                min-width: 0;
+                border-right: none;
+                border-bottom: 1px solid #ddd;
+                max-height: 40vh;
+                /* ★ 追加：スマホ時は左パネルが画面を食いすぎない */
+            }
+
+            .canvas-container {
+                flex: 1;
+                min-height: 0;
+            }
+        }
+
+        /* クイズ中に非表示にする */
+        .hidden-control {
+            display: none !important;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <header>
+        <div class="status-bar">
+            <span id="display-v">v = <span class="val">2.0</span> m/s</span>
+            <span id="display-t">時刻 t = <span class="val">0.0</span> s</span>
+            <span id="display-x">着目位置 x = <span class="val">0.0</span> m</span>
+        </div>
+    </header>
+
+    <div class="app-body">
+
+        <!-- 左：操作パネル -->
+        <aside class="side-controls">
+            <div class="controls">
+                <div class="control-group">
+                    <label>速度 v (m/s): <span id="val-v">2</span></label>
+                    <input type="range" id="input-v" min="1" max="5" step="1" value="2">
+                </div>
+
+                <div class="control-group">
+                    <label>時刻 t (s): <span id="val-time">0</span></label>
+                    <input type="range" id="input-time" min="0" max="20" step="1" value="0">
+                </div>
+
+                <div class="control-group">
+                    <label>再生コントロール</label>
+                    <div class="btn-group">
+                        <button id="btn-play" onclick="togglePlay()">Play</button>
+                        <button onclick="resetTime()">Reset t=0</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>正解の 波長 λ (m) <span id="val-lambda">4</span></label>
+                    <input type="range" id="input-lambda" min="2" max="10" step="1" value="4">
+                </div>
+
+                <div class="control-group">
+                    <label>正解の 周期 T (s) <span id="val-period">2.0</span></label>
+                    <input type="range" id="input-period" min="1" max="5.0" step="1" value="2">
+                </div>
+
+                <div class="control-group">
+                    <label>進行方向</label>
+                    <button class="active" id="btn-dir" onclick="toggleDirection()">x正方向</button>
+                </div>
+
+                <div class="control-group" style="border-left: 2px solid #ddd; padding-left: 15px; max-width: 280px;">
+                    <label>クイズ / 表示</label>
+                    <div class="btn-group" style="margin-bottom:8px;">
+                        <button id="btn-quiz-yx" onclick="toggleQuizMode('yx')">y-x クイズ</button>
+                        <button id="btn-quiz-yt" onclick="toggleQuizMode('yt')">y-t クイズ</button>
+                    </div>
+
+                    <div class="control-group" id="quiz-controls" style="display:none;">
+                        <label>回答用パラメータ</label>
+                        <div class="control-group">
+                            <label>回答用 波長 λ (m): <span id="ans-lambda-display">4.0</span></label>
+                            <input type="range" id="ans-lambda" min="2" max="10" step="0.5" value="4">
+                        </div>
+                        <div class="control-group">
+                            <label>回答用 周期 T (s): <span id="ans-period-display">2.0</span></label>
+                            <input type="range" id="ans-period" min="0.5" max="5.0" step="0.1" value="2.0">
+                        </div>
+                        <div class="btn-group" style="margin-top:8px;">
+                            <button class="btn-clear" onclick="clearAnswer()">リセット</button>
+                            <button class="btn-check" onclick="checkAnswer()">答え合わせ</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- 右：キャンバス -->
+        <main class="canvas-container">
+            <!-- y-x グラフ -->
+            <div class="graph-panel" id="panel-yx">
+                <div class="panel-label">y-x グラフ (時刻 t の波形)</div>
+                <div class="draw-instruction" id="msg-yx">クイズ中: 波を上下にドラッグして位相調整</div>
+                <canvas id="canvas-yx"></canvas>
+                <div class="quiz-overlay" id="result-yx">
+                    <div class="quiz-result">正解！</div>
+                    <div class="quiz-detail"></div>
+                </div>
+            </div>
+
+            <!-- y-t グラフ -->
+            <div class="graph-panel" id="panel-yt">
+                <div class="panel-label">
+                    y-t グラフ (位置 x の振動)
+                    <span id="label-x-pos" style="margin-left: 8px; font-weight: normal;">x=0.0 m</span>
+                </div>
+                <div class="draw-instruction" id="msg-yt">クイズ中: 波を上下にドラッグして位相調整</div>
+                <canvas id="canvas-yt"></canvas>
+                <div class="quiz-overlay" id="result-yt">
+                    <div class="quiz-result">正解！</div>
+                    <div class="quiz-detail"></div>
+                </div>
+            </div>
+    </div>
+
+
+    <script>
+        // --- State Management ---
+        const state = {
+            lambda: 4,
+            period: 2.0,
+            velocity: 2,
+            amp: 1.5,
+            direction: 1,
+            t: 0.0,
+            targetX: 0.0,
+            isPlaying: false,
+            lastFrameTime: 0,
+
+            quizMode: null,      // null | 'yx' | 'yt'
+            answerLambda: 4,
+            answerPeriod: 2.0,
+            answerPhase: 0.0,    // [rad]
+            quizResult: null     // null | 'correct' | 'incorrect'
+        };
+
+        // Canvas
+        const cvsYX = document.getElementById('canvas-yx');
+        const ctxYX = cvsYX.getContext('2d');
+        const cvsYT = document.getElementById('canvas-yt');
+        const ctxYT = cvsYT.getContext('2d');
+
+        // DOM Elements
+        const els = {
+            v: document.querySelector('#display-v .val'),
+            t: document.querySelector('#display-t .val'),
+            x: document.querySelector('#display-x .val'),
+            labelX: document.getElementById('label-x-pos'),
+            btnPlay: document.getElementById('btn-play'),
+            btnDir: document.getElementById('btn-dir'),
+            inpV: document.getElementById('input-v'),
+            valV: document.getElementById('val-v'),
+            inpTime: document.getElementById('input-time'),
+            valTime: document.getElementById('val-time'),
+            inpLambda: document.getElementById('input-lambda'),
+            inpPeriod: document.getElementById('input-period'),
+            valLambda: document.getElementById('val-lambda'),
+            valPeriod: document.getElementById('val-period'),
+
+            btnQuizYX: document.getElementById('btn-quiz-yx'),
+            btnQuizYT: document.getElementById('btn-quiz-yt'),
+            quizControls: document.getElementById('quiz-controls'),
+
+            msgYX: document.getElementById('msg-yx'),
+            msgYT: document.getElementById('msg-yt'),
+            resultYX: document.getElementById('result-yx'),
+            resultYT: document.getElementById('result-yt'),
+
+            ansLambda: document.getElementById('ans-lambda'),
+            ansPeriod: document.getElementById('ans-period'),
+            ansLambdaDisp: document.getElementById('ans-lambda-display'),
+            ansPeriodDisp: document.getElementById('ans-period-display')
+        };
+
+        // --- Physics ---
+        function getV() {
+            return state.velocity;
+        }
+
+
+        function calcYGeneral(t, x, lambda, period, phase) {
+            const sign = state.direction === 1 ? -1 : 1;
+            const base = 2 * Math.PI * (t / period + sign * x / lambda);
+            return state.amp * Math.sin(base + phase);
+        }
+
+        function correctY(t, x) {
+            return calcYGeneral(t, x, state.lambda, state.period, 0);
+        }
+
+        function answerY(t, x) {
+            return calcYGeneral(
+                t, x,
+                state.answerLambda,
+                state.answerPeriod,
+                state.answerPhase
+            );
+        }
+
+        // --- Drawing helpers ---
+        function resizeCanvas(canvas) {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            if (canvas.width !== rect.width || canvas.height !== rect.height) {
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+            }
+        }
+
+        function worldToScreen(val, type, w, h) {
+            const midY = h / 2;
+            const scaleX = 50;
+            const scaleY = 50;
+            const offsetX = 50;
+
+            if (type === 'x') return offsetX + val * scaleX;
+            if (type === 'y') return midY - val * scaleY;
+            if (type === 'rx') return (val - offsetX) / scaleX;
+            if (type === 'ry') return (midY - val) / scaleY;
+        }
+
+        function drawGrid(ctx, w, h, xLabel, yLabel) {
+            ctx.clearRect(0, 0, w, h);
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 1;
+            const midY = h / 2;
+
+            ctx.beginPath();
+            for (let x = 0; x <= w; x += 50) {
+                ctx.moveTo(x, 0); ctx.lineTo(x, h);
+            }
+            for (let y = 0; y <= h; y += 50) {
+                ctx.moveTo(0, y); ctx.lineTo(w, y);
+            }
+            ctx.stroke();
+
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, midY); ctx.lineTo(w, midY);
+            ctx.moveTo(50, 0); ctx.lineTo(50, h);
+            ctx.stroke();
+
+            ctx.fillStyle = '#7f8c8d';
+            ctx.font = '14px Arial';
+            ctx.fillText('0', 35, midY + 20);
+            ctx.fillText(xLabel, w - 40, midY + 20);
+            ctx.fillText(yLabel, 60, 20);
+        }
+
+        // --- Draw y-x ---
+        function drawYX() {
+            const w = cvsYX.width;
+            const h = cvsYX.height;
+            drawGrid(ctxYX, w, h, 'x (m)', 'y (m)');
+
+            const quizOnYX = (state.quizMode === 'yx');
+
+            // 正解波（青）
+            const showCorrect = !quizOnYX || state.quizResult !== null;
+            if (showCorrect) {
+                ctxYX.beginPath();
+                ctxYX.strokeStyle =
+                    (quizOnYX && state.quizResult !== null)
+                        ? 'rgba(52, 152, 219, 0.4)'
+                        : '#3498db';
+                ctxYX.lineWidth = 3;
+                for (let px = 0; px < w; px += 2) {
+                    const xWorld = worldToScreen(px, 'rx', w, h);
+                    const yWorld = correctY(state.t, xWorld);
+                    const py = worldToScreen(yWorld, 'y', w, h);
+                    if (px === 0) ctxYX.moveTo(px, py);
+                    else ctxYX.lineTo(px, py);
+                }
+                ctxYX.stroke();
+            }
+
+            // 回答波（緑）
+            if (quizOnYX) {
+                ctxYX.beginPath();
+                ctxYX.strokeStyle = '#2ecc71';
+                ctxYX.lineWidth = 4;
+                for (let px = 0; px < w; px += 2) {
+                    const xWorld = worldToScreen(px, 'rx', w, h);
+                    const yWorld = answerY(state.t, xWorld);
+                    const py = worldToScreen(yWorld, 'y', w, h);
+                    if (px === 0) ctxYX.moveTo(px, py);
+                    else ctxYX.lineTo(px, py);
+                }
+                ctxYX.stroke();
+            }
+
+            // ターゲット粒子（通常モード時）
+            if (!quizOnYX) {
+                const targetPx = worldToScreen(state.targetX, 'x', w, h);
+                const targetPy = worldToScreen(correctY(state.t, state.targetX), 'y', w, h);
+                ctxYX.fillStyle = '#e74c3c';
+                ctxYX.beginPath();
+                ctxYX.arc(targetPx, targetPy, 8, 0, Math.PI * 2);
+                ctxYX.fill();
+                ctxYX.setLineDash([5, 5]);
+                ctxYX.strokeStyle = '#e74c3c';
+                ctxYX.lineWidth = 1;
+                ctxYX.beginPath();
+                ctxYX.moveTo(targetPx, 0); ctxYX.lineTo(targetPx, h);
+                ctxYX.stroke();
+                ctxYX.setLineDash([]);
+            }
+        }
+
+        // --- Draw y-t ---
+        function drawYT() {
+            const w = cvsYT.width;
+            const h = cvsYT.height;
+            drawGrid(ctxYT, w, h, 't (s)', 'y (m)');
+
+            const quizOnYT = (state.quizMode === 'yt');
+            const showCorrect = !quizOnYT || state.quizResult !== null;
+
+            // 正解の y-t（赤）…クイズ中は答え合わせ後だけ表示
+            if (showCorrect) {
+                ctxYT.beginPath();
+                ctxYT.strokeStyle =
+                    (quizOnYT && state.quizResult !== null)
+                        ? 'rgba(231, 76, 60, 0.4)'   // クイズ後は薄く表示
+                        : '#e74c3c';
+                ctxYT.lineWidth = 3;
+
+                for (let px = 0; px < w; px += 2) {
+                    const tWorld = worldToScreen(px, 'rx', w, h);
+                    if (tWorld < 0) continue;
+                    const yWorld = correctY(tWorld, state.targetX);
+                    const py = worldToScreen(yWorld, 'y', w, h);
+                    if (px === 50) ctxYT.moveTo(px, py);
+                    else ctxYT.lineTo(px, py);
+                }
+                ctxYT.stroke();
+
+                // 現在時刻のマーカー（正解波に対して）も、正解波を表示しているときだけ
+                const currentTPx = worldToScreen(state.t, 'x', w, h);
+                if (currentTPx >= 0 && currentTPx <= w) {
+                    const currentY = correctY(state.t, state.targetX);
+                    const currentPy = worldToScreen(currentY, 'y', w, h);
+                    ctxYT.fillStyle = '#e74c3c';
+                    ctxYT.beginPath();
+                    ctxYT.arc(currentTPx, currentPy, 8, 0, Math.PI * 2);
+                    ctxYT.fill();
+                    ctxYT.setLineDash([5, 5]);
+                    ctxYT.strokeStyle = '#333';
+                    ctxYT.beginPath();
+                    ctxYT.moveTo(currentTPx, 0); ctxYT.lineTo(currentTPx, h);
+                    ctxYT.stroke();
+                    ctxYT.setLineDash([]);
+                }
+            }
+
+            // 回答の y-t（緑）…y-t クイズ中だけ表示
+            if (quizOnYT) {
+                ctxYT.beginPath();
+                ctxYT.strokeStyle = '#2ecc71';
+                ctxYT.lineWidth = 4;
+                for (let px = 0; px < w; px += 2) {
+                    const tWorld = worldToScreen(px, 'rx', w, h);
+                    if (tWorld < 0) continue;
+                    const yWorld = answerY(tWorld, state.targetX);
+                    const py = worldToScreen(yWorld, 'y', w, h);
+                    if (px === 50) ctxYT.moveTo(px, py);
+                    else ctxYT.lineTo(px, py);
+                }
+                ctxYT.stroke();
+            }
+        }
+
+
+        let isDragging = false;
+        let dragMode = null;  // 'x' | 'phase-yx' | 'phase-yt'
+        let dragAnchorXWorld = 0; // y-x でドラッグを開始した x（世界座標）
+        let dragAnchorTWorld = 0; // y-t でドラッグを開始した t（世界座標）
+        let dragStartPhase = 0; // ドラッグ開始時の位相
+
+
+        function getPointYX(e) {
+            const rect = cvsYX.getBoundingClientRect();
+            const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+            const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+            const px = clientX - rect.left;
+            const py = clientY - rect.top;
+            const w = cvsYX.width;
+            const h = cvsYX.height;
+            return {
+                x: worldToScreen(px, 'rx', w, h),
+                y: worldToScreen(py, 'ry', w, h)
+            };
+        }
+
+        function getPointYT(e) {
+            const rect = cvsYT.getBoundingClientRect();
+            const clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+            const clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+            const px = clientX - rect.left;
+            const py = clientY - rect.top;
+            const w = cvsYT.width;
+            const h = cvsYT.height;
+            return {
+                t: worldToScreen(px, 'rx', w, h),
+                y: worldToScreen(py, 'ry', w, h)
+            };
+        }
+
+        // 通常モード：x の位置をドラッグで変える
+        function handleXDrag(e) {
+            const pt = getPointYX(e);
+            let x = pt.x;
+            if (x < 0) x = 0;
+
+            // ★ λ/4 刻みにスナップ
+            const step = state.lambda / 4;
+            x = Math.round(x / step) * step;
+
+            state.targetX = x;
+        }
+
+
+
+
+        // y-x グラフでの位相ドラッグ（左右にドラッグ）
+        function handlePhaseDragYX(e) {
+            const pt = getPointYX(e);
+            const deltaX = pt.x - dragAnchorXWorld;   // ドラッグ開始位置からどれだけ横に動いたか
+
+            const lambda = state.answerLambda;
+            const sign = state.direction === 1 ? -1 : 1;
+
+            // Δφ = - 2π * sign * Δx / λ
+            let newPhase = dragStartPhase - 2 * Math.PI * sign * (deltaX / lambda);
+
+            // π/8刻みにスナップ
+            const step = Math.PI / 8;
+            newPhase = Math.round(newPhase / step) * step;
+
+            state.answerPhase = newPhase;
+        }
+
+        // y-t グラフでの位相ドラッグ（左右にドラッグ）
+        function handlePhaseDragYT(e) {
+            const pt = getPointYT(e);
+            const deltaT = pt.t - dragAnchorTWorld;   // ドラッグ開始位置からどれだけ横に動いたか
+
+            const period = state.answerPeriod;
+
+            // Δφ = - 2π * Δt / T
+            let newPhase = dragStartPhase - 2 * Math.PI * (deltaT / period);
+
+            // π/8刻みにスナップ
+            const step = Math.PI / 8;
+            newPhase = Math.round(newPhase / step) * step;
+
+            state.answerPhase = newPhase;
+        }
+
+
+        function handlePointerStartYX(e) {
+            isDragging = true;
+            if (state.quizMode === 'yx') {
+                dragMode = 'phase-yx';
+                const pt = getPointYX(e);
+                dragAnchorXWorld = pt.x;          // 横ドラッグの基準 x
+                dragStartPhase = state.answerPhase; // ドラッグ開始時の位相
+                handlePhaseDragYX(e);
+            } else {
+                dragMode = 'x';
+                handleXDrag(e);
+            }
+            e.preventDefault();
+        }
+
+
+        function handlePointerMoveYX(e) {
+            if (!isDragging) return;
+            if (dragMode === 'x') handleXDrag(e);
+            else if (dragMode === 'phase-yx') handlePhaseDragYX(e);
+            e.preventDefault();
+        }
+
+        // y-t キャンバスのポインタイベント（クイズ中のみ位相ドラッグ）
+        function handlePointerStartYT(e) {
+            if (state.quizMode !== 'yt') return;
+            isDragging = true;
+            dragMode = 'phase-yt';
+            const pt = getPointYT(e);
+            dragAnchorTWorld = pt.t;           // 横ドラッグの基準 t
+            dragStartPhase = state.answerPhase;
+            handlePhaseDragYT(e);
+            e.preventDefault();
+        }
+
+
+        function handlePointerMoveYT(e) {
+            if (!isDragging || dragMode !== 'phase-yt') return;
+            handlePhaseDragYT(e);
+            e.preventDefault();
+        }
+
+        function handlePointerEnd() {
+            isDragging = false;
+            dragMode = null;
+        }
+
+        // イベント登録
+        cvsYX.addEventListener('mousedown', handlePointerStartYX);
+        window.addEventListener('mousemove', handlePointerMoveYX);
+        window.addEventListener('mouseup', handlePointerEnd);
+
+        cvsYX.addEventListener('touchstart', handlePointerStartYX, { passive: false });
+        cvsYX.addEventListener('touchmove', handlePointerMoveYX, { passive: false });
+        cvsYX.addEventListener('touchend', handlePointerEnd);
+
+        cvsYT.addEventListener('mousedown', handlePointerStartYT);
+        window.addEventListener('mousemove', handlePointerMoveYT);
+        window.addEventListener('mouseup', handlePointerEnd);
+
+        cvsYT.addEventListener('touchstart', handlePointerStartYT, { passive: false });
+        cvsYT.addEventListener('touchmove', handlePointerMoveYT, { passive: false });
+        cvsYT.addEventListener('touchend', handlePointerEnd);
+
+        // ===== 整数解のみ許す：v, λ, T の同期 =====
+        const PERIOD_MIN = 1;
+        const PERIOD_MAX = 5;
+
+        // λは v×T なので、Tの範囲から λの範囲を決める
+        function updateAllowedPairsBySpeed() {
+            const v = state.velocity;
+
+            // ① Tレンジ（整数のみ）
+            els.inpPeriod.min = PERIOD_MIN;
+            els.inpPeriod.max = PERIOD_MAX;
+            els.inpPeriod.step = 1;
+
+            // ② λレンジ（v刻み）
+            els.inpLambda.min = v * PERIOD_MIN;
+            els.inpLambda.max = v * PERIOD_MAX;
+            els.inpLambda.step = v;
+
+            // ③ 現在の T を範囲に収める
+            let T = Math.round(state.period);
+            T = Math.max(PERIOD_MIN, Math.min(PERIOD_MAX, T));
+            state.period = T;
+
+            // ④ λは必ず λ=vT
+            state.lambda = v * T;
+
+            // ⑤ スライダー＆表示を同期
+            els.inpPeriod.value = state.period;
+            els.inpLambda.value = state.lambda;
+            els.valPeriod.textContent = String(state.period);
+            els.valLambda.textContent = String(state.lambda);
+
+            // ⑥ 着目位置も λ/4 刻みに合わせ直す（λが変わるので）
+            const stepX = state.lambda / 4;
+            state.targetX = Math.round(state.targetX / stepX) * stepX;
+        }
+
+
+        // --- Controls ---
+        function togglePlay() {
+            state.isPlaying = !state.isPlaying;
+            els.btnPlay.textContent = state.isPlaying ? "Pause" : "Play";
+            els.btnPlay.classList.toggle('active');
+        }
+
+        function resetTime() {
+            state.t = 0.0;
+            state.isPlaying = false;
+            els.btnPlay.textContent = "Play";
+            els.btnPlay.classList.remove('active');
+            state.quizResult = null;
+            els.resultYX.classList.remove('active');
+            els.resultYT.classList.remove('active');
+        }
+
+        function toggleDirection() {
+            state.direction *= -1;
+            els.btnDir.textContent = state.direction === 1 ? "x正方向" : "x負方向";
+        }
+
+
+        // クイズモード切り替え
+        function toggleQuizMode(type) {
+            if (state.quizMode === type) {
+                // クイズ終了
+                state.quizMode = null;
+            } else {
+                // ===== クイズ開始 =====
+                state.quizMode = type;
+                randomizeAnswerParams();
+
+
+                /* ---------- λ（波長）をランダムにずらす ---------- */
+                const lambdaChoices = [];
+                for (let d of [-2, -1, 1, 2]) {
+                    const v = state.lambda + d;
+                    if (v >= 2 && v <= 10) lambdaChoices.push(v);
+                }
+                state.answerLambda =
+                    lambdaChoices[Math.floor(Math.random() * lambdaChoices.length)];
+
+                /* ---------- T（周期）をランダムにずらす ---------- */
+                const periodChoices = [];
+                for (let d of [-2, -1, 1, 2]) {
+                    const v = state.period + d;
+                    if (v >= 1 && v <= 5) periodChoices.push(v);
+                }
+                state.answerPeriod =
+                    periodChoices[Math.floor(Math.random() * periodChoices.length)];
+
+                /* ---------- 位相 φ をランダム ---------- */
+                const phaseStep = Math.PI / 4;
+                const phaseChoices = [-3, -2, -1, 1, 2, 3];
+                const k = phaseChoices[Math.floor(Math.random() * phaseChoices.length)];
+                state.answerPhase = k * phaseStep;
+
+                /* ---------- UI 同期 ---------- */
+                els.ansLambda.value = state.answerLambda;
+                els.ansPeriod.value = state.answerPeriod;
+                els.ansLambdaDisp.textContent = state.answerLambda.toFixed(1);
+                els.ansPeriodDisp.textContent = state.answerPeriod.toFixed(1);
+            }
+
+            // ボタン状態
+            els.btnQuizYX.classList.toggle('active', state.quizMode === 'yx');
+            els.btnQuizYT.classList.toggle('active', state.quizMode === 'yt');
+
+            // クイズUI表示・非表示
+            const quizOn = (state.quizMode !== null);
+            els.quizControls.style.display = quizOn ? 'block' : 'none';
+
+            /* ===== 正解用パラメーターをクイズ中は隠す ===== */
+
+            // 数値表示（λ, T）
+            els.valLambda.classList.toggle('hidden-value', quizOn);
+            els.valPeriod.classList.toggle('hidden-value', quizOn);
+
+            // スライダー（λ, T）
+            els.inpLambda.classList.toggle('hidden-control', quizOn);
+            els.inpPeriod.classList.toggle('hidden-control', quizOn);
+
+
+            // メッセージ
+            els.msgYX.classList.toggle('active', state.quizMode === 'yx');
+            els.msgYT.classList.toggle('active', state.quizMode === 'yt');
+
+            // 結果表示リセット
+            els.resultYX.classList.remove('active');
+            els.resultYT.classList.remove('active');
+            state.quizResult = null;
+        }
+
+
+
+        // 回答を正解パラメータにリセット（位相0）
+        function clearAnswer() {
+            state.answerLambda = state.lambda;
+            state.answerPeriod = state.period;
+            state.answerPhase = 0.0;
+            state.quizResult = null;
+
+            els.ansLambda.value = state.answerLambda;
+            els.ansPeriod.value = state.answerPeriod;
+            els.ansLambdaDisp.textContent = state.answerLambda.toFixed(1);
+            els.ansPeriodDisp.textContent = state.answerPeriod.toFixed(1);
+
+            els.resultYX.classList.remove('active');
+            els.resultYT.classList.remove('active');
+        }
+
+        // 答え合わせ 
+        function checkAnswer() {
+            if (!state.quizMode) {
+                alert("先に「y-x クイズ」または「y-t クイズ」を選んでください。");
+                return;
+            }
+
+            const dLambda = Math.abs(state.answerLambda - state.lambda);
+            const dPeriod = Math.abs(state.answerPeriod - state.period);
+
+            // ★位相差（2π 周期で一番近い差をとる）★
+            const twoPi = 2 * Math.PI;
+            let dPhase = Math.abs(state.answerPhase); // 正解は 0
+            dPhase = dPhase % twoPi;                  // 0〜2π に正規化
+            if (dPhase > Math.PI) dPhase = twoPi - dPhase; // 0〜π に畳み込み
+
+            const tolLambda = 0.25;
+            const tolPeriod = 0.1;
+            const tolPhase = 0.3; // 山・谷がほぼ一致とみなす閾値（必要なら調整）
+
+            const isCorrect =
+                dLambda <= tolLambda &&
+                dPeriod <= tolPeriod &&
+                dPhase <= tolPhase;
+
+            state.quizResult = isCorrect ? 'correct' : 'incorrect';
+
+            const resultOverlay = (state.quizMode === 'yx') ? els.resultYX : els.resultYT;
+            const resultEl = resultOverlay.querySelector('.quiz-result');
+            const detailEl = resultOverlay.querySelector('.quiz-detail');
+
+            resultEl.textContent = isCorrect ? "正解！" : "もう一歩…";
+            resultEl.style.color = isCorrect ? "#2ecc71" : "#e74c3c";
+
+            detailEl.textContent =
+                `正解: λ=${state.lambda.toFixed(1)}m, T=${state.period.toFixed(1)}s, φ=0rad / ` +
+                `あなた: λ=${state.answerLambda.toFixed(1)}m, T=${state.answerPeriod.toFixed(1)}s, φ=${state.answerPhase.toFixed(2)}rad`;
+
+            els.resultYX.classList.remove('active');
+            els.resultYT.classList.remove('active');
+            resultOverlay.classList.add('active');
+        }
+
+        // v を変えたら「許される(λ,T)の組」を作り直す
+        els.inpV.addEventListener('input', (e) => {
+            state.velocity = parseInt(e.target.value, 10);
+            els.valV.textContent = String(state.velocity);
+
+            updateAllowedPairsBySpeed(); // ←ここで λ=vT に強制
+
+            // クイズ中は正解パラメータを触れない想定なので、ここでは回答側は触らない
+        });
+
+        // T を動かしたら λ を自動決定（λ=vT）
+        els.inpPeriod.addEventListener('input', (e) => {
+            state.period = parseInt(e.target.value, 10);
+            state.lambda = state.velocity * state.period;
+
+            els.valPeriod.textContent = String(state.period);
+            els.valLambda.textContent = String(state.lambda);
+
+            // λ スライダーも同期
+            els.inpLambda.value = state.lambda;
+
+            // 着目位置の刻みも変わるのでスナップし直す
+            const stepX = state.lambda / 4;
+            state.targetX = Math.round(state.targetX / stepX) * stepX;
+        });
+
+        // λ を動かしたら v の倍数にスナップして T を自動決定（T=λ/v）
+        els.inpLambda.addEventListener('input', (e) => {
+            const v = state.velocity;
+            let lambda = parseInt(e.target.value, 10);
+
+            // v刻みにスナップ（念のため）
+            lambda = Math.round(lambda / v) * v;
+
+            // 対応する整数T
+            let T = lambda / v;
+            T = Math.max(PERIOD_MIN, Math.min(PERIOD_MAX, T));
+
+            state.period = T;
+            state.lambda = v * T; // 安全のため再計算で確定
+
+            els.valPeriod.textContent = String(state.period);
+            els.valLambda.textContent = String(state.lambda);
+
+            // T スライダーも同期
+            els.inpPeriod.value = state.period;
+            els.inpLambda.value = state.lambda;
+
+            // 着目位置スナップ
+            const stepX = state.lambda / 4;
+            state.targetX = Math.round(state.targetX / stepX) * stepX;
+        });
+
+
+        els.inpTime.addEventListener('input', (e) => {
+            state.t = parseInt(e.target.value, 10);
+            els.valTime.textContent = state.t;
+        });
+
+
+        // 回答側スライダー
+        els.ansLambda.addEventListener('input', (e) => {
+            state.answerLambda = parseFloat(e.target.value);
+            els.ansLambdaDisp.textContent = state.answerLambda.toFixed(1);
+        });
+        els.ansPeriod.addEventListener('input', (e) => {
+            state.answerPeriod = parseFloat(e.target.value);
+            els.ansPeriodDisp.textContent = state.answerPeriod.toFixed(1);
+        });
+
+        // --- Loop ---
+        function updateDisplay() {
+            els.v.textContent = getV().toFixed(1);
+            els.t.textContent = String(state.t);
+            els.x.textContent = state.targetX.toFixed(1);
+            if (els.labelX) {
+                els.labelX.textContent = "x=" + state.targetX.toFixed(1) + " m";
+            }
+
+            els.valLambda.textContent = state.lambda;
+            els.valPeriod.textContent = String(state.period);
+        }
+
+        function loop(timestamp) {
+            if (!state.lastFrameTime) state.lastFrameTime = timestamp;
+            const dt = (timestamp - state.lastFrameTime) / 1000;
+            state.lastFrameTime = timestamp;
+
+            if (state.isPlaying && !state.quizMode) {
+                state.t += dt;
+            }
+
+            resizeCanvas(cvsYX);
+            resizeCanvas(cvsYT);
+            drawYX();
+            drawYT();
+            updateDisplay();
+
+            requestAnimationFrame(loop);
+        }
+
+        function randomizeAnswerParams() {
+            const randPick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+            const v = state.velocity;
+
+            // ===== 有効な整数解 (λ, T) の組を作る =====
+            const validPairs = [];
+            for (let T = 1; T <= 5; T++) {
+                validPairs.push({
+                    T,
+                    lambda: v * T
+                });
+            }
+
+            // 正解と同じ組を除外
+            const wrongPairs = validPairs.filter(p =>
+                !(p.lambda === state.lambda && p.T === state.period)
+            );
+
+            // 万一全部一致していたら保険
+            const pair = wrongPairs.length > 0
+                ? randPick(wrongPairs)
+                : randPick(validPairs);
+
+            state.answerLambda = pair.lambda;
+            state.answerPeriod = pair.T;
+
+            // ===== 位相は π/8 刻み（0は避ける） =====
+            const step = Math.PI / 8;
+            const phaseChoices = [-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8]
+                .map(k => k * step);
+
+            state.answerPhase = randPick(phaseChoices);
+
+            // ===== UI 同期（undefined防止） =====
+            if (els.ansLambda && els.ansLambdaDisp) {
+                els.ansLambda.value = state.answerLambda;
+                els.ansLambdaDisp.textContent = String(state.answerLambda);
+            }
+
+            if (els.ansPeriod && els.ansPeriodDisp) {
+                els.ansPeriod.value = state.answerPeriod;
+                els.ansPeriodDisp.textContent = String(state.answerPeriod);
+            }
+        }
+
+
+
+        // グローバル公開
+        window.togglePlay = togglePlay;
+        window.resetTime = resetTime;
+        window.toggleDirection = toggleDirection;
+        window.toggleQuizMode = toggleQuizMode;
+        window.clearAnswer = clearAnswer;
+        window.checkAnswer = checkAnswer;
+
+        // 初期化
+        clearAnswer();
+        updateAllowedPairsBySpeed();
+        requestAnimationFrame(loop);
+    </script>
+
+</body>
+
+</html>
