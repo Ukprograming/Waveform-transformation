@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>波のグラフ クイズアプリ</title>
+    <title>波のグラフの変換シミュレーション</title>
     <style>
         :root {
             --primary-color: #3498db;
@@ -308,8 +308,13 @@
         <aside class="side-controls">
             <div class="controls">
                 <div class="control-group">
-                    <label>速度 v (m/s): <span id="val-v">2</span></label>
+                    <label>速さ v (m/s): <span id="val-v">2</span></label>
                     <input type="range" id="input-v" min="1" max="5" step="1" value="2">
+                </div>
+
+                <div class="control-group">
+                    <label>進行方向</label>
+                    <button class="active" id="btn-dir" onclick="toggleDirection()">x正方向</button>
                 </div>
 
                 <div class="control-group">
@@ -333,11 +338,6 @@
                 <div class="control-group">
                     <label>正解の 周期 T (s) <span id="val-period">2.0</span></label>
                     <input type="range" id="input-period" min="1" max="5.0" step="1" value="2">
-                </div>
-
-                <div class="control-group">
-                    <label>進行方向</label>
-                    <button class="active" id="btn-dir" onclick="toggleDirection()">x正方向</button>
                 </div>
 
                 <div class="control-group" style="border-left: 2px solid #ddd; padding-left: 15px; max-width: 280px;">
@@ -1306,3 +1306,4 @@
 </body>
 
 </html>
+
