@@ -919,14 +919,24 @@
         }
 
         function resetTime() {
-            state.t = 0.0;
-            state.isPlaying = false;
-            els.btnPlay.textContent = "Play";
-            els.btnPlay.classList.remove('active');
-            state.quizResult = null;
-            els.resultYX.classList.remove('active');
-            els.resultYT.classList.remove('active');
+          // ★スライダーで設定している時刻に戻す
+          const tFromSlider = parseFloat(els.inpTime.value) || 0;
+          state.t = tFromSlider;
+        
+          // 再生停止
+          state.isPlaying = false;
+          els.btnPlay.textContent = "Play";
+          els.btnPlay.classList.remove('active');
+        
+          // 結果表示リセット
+          state.quizResult = null;
+          els.resultYX.classList.remove('active');
+          els.resultYT.classList.remove('active');
+        
+          // 表示も即時反映（次フレームでも反映されますが念のため）
+          els.valTime.textContent = String(Math.round(state.t));
         }
+
 
         function toggleDirection() {
             state.direction *= -1;
@@ -1306,5 +1316,6 @@
 </body>
 
 </html>
+
 
 
