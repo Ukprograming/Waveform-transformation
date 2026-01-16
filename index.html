@@ -345,6 +345,7 @@
                     <div class="btn-group" style="margin-bottom:8px;">
                         <button id="btn-quiz-yx" onclick="toggleQuizMode('yx')">y-x クイズ</button>
                         <button id="btn-quiz-yt" onclick="toggleQuizMode('yt')">y-t クイズ</button>
+                        <button id="btn-quiz-rand" onclick="startRandomQuiz()">ランダムクイズ</button>
                     </div>
 
                     <div class="control-group" id="quiz-controls" style="display:none;">
@@ -441,6 +442,7 @@
 
             btnQuizYX: document.getElementById('btn-quiz-yx'),
             btnQuizYT: document.getElementById('btn-quiz-yt'),
+            btnQuizRand: document.getElementById('btn-quiz-rand'),
             quizControls: document.getElementById('quiz-controls'),
 
             msgYX: document.getElementById('msg-yx'),
@@ -919,22 +921,22 @@
         }
 
         function resetTime() {
-          // ★スライダーで設定している時刻に戻す
-          const tFromSlider = parseFloat(els.inpTime.value) || 0;
-          state.t = tFromSlider;
-        
-          // 再生停止
-          state.isPlaying = false;
-          els.btnPlay.textContent = "Play";
-          els.btnPlay.classList.remove('active');
-        
-          // 結果表示リセット
-          state.quizResult = null;
-          els.resultYX.classList.remove('active');
-          els.resultYT.classList.remove('active');
-        
-          // 表示も即時反映（次フレームでも反映されますが念のため）
-          els.valTime.textContent = String(Math.round(state.t));
+            // ★スライダーで設定している時刻に戻す
+            const tFromSlider = parseFloat(els.inpTime.value) || 0;
+            state.t = tFromSlider;
+
+            // 再生停止
+            state.isPlaying = false;
+            els.btnPlay.textContent = "Play";
+            els.btnPlay.classList.remove('active');
+
+            // 結果表示リセット
+            state.quizResult = null;
+            els.resultYX.classList.remove('active');
+            els.resultYT.classList.remove('active');
+
+            // 表示も即時反映（次フレームでも反映されますが念のため）
+            els.valTime.textContent = String(Math.round(state.t));
         }
 
 
@@ -943,86 +945,85 @@
             els.btnDir.textContent = state.direction === 1 ? "x正方向" : "x負方向";
         }
 
+        // ===== 追加：正解(λ,T)をランダム生成（整数制約：Tは整数、λ=vT） =====
+        function randomizeCorrectParams() {
+            const v = state.velocity;
 
-        // クイズモード切り替え
-        function toggleQuizMode(type) {
-            if (state.quizMode === type) {
-                // クイズ終了
-                state.quizMode = null;
-                // ★終了時もレンジを戻して同期（任意だけど安全）
-                updateAnswerAllowedPairsBySpeed();
+            // Tを整数でランダム
+            const T = Math.floor(Math.random() * (PERIOD_MAX - PERIOD_MIN + 1)) + PERIOD_MIN;
+
+            state.period = T;
+            state.lambda = v * T;
+
+            // UI同期（クイズ中はスライダー非表示でも値は更新しておく）
+            els.inpPeriod.value = state.period;
+            els.inpLambda.value = state.lambda;
+            els.valPeriod.textContent = String(state.period);
+            els.valLambda.textContent = String(state.lambda);
+
+            // 着目位置も λ/4 刻みにスナップ（λが変わるため）
+            const stepX = state.lambda / 4;
+            state.targetX = Math.round(state.targetX / stepX) * stepX;
+        }
+
+        // ===== 追加：クイズ開始を共通化 =====
+        function beginQuiz(type, randomizeCorrect) {
+            state.quizMode = type;
+
+            // 再生は止めておく（クイズ中は時間が動かない仕様に合わせる）
+            state.isPlaying = false;
+            els.btnPlay.textContent = "Play";
+            els.btnPlay.classList.remove('active');
+
+            // 回答側レンジを速度に合わせる
+            updateAnswerAllowedPairsBySpeed();
+
+            // ★正解(λ,T)をランダムにする場合
+            if (randomizeCorrect) {
+                randomizeCorrectParams();
+
+                // 正解(λ,T)が変わったので、回答初期値も「正解」にリセットしておく（好みで変更OK）
+                clearAnswer();
             } else {
-                // ===== クイズ開始 =====
-                state.quizMode = type;
-
-                // ★まず回答側レンジを速度に合わせる
-                updateAnswerAllowedPairsBySpeed();
-
-                randomizeAnswerParams();
-
-
-                /* ---------- λ（波長）をランダムにずらす ---------- */
-                const LAMBDA_MIN = state.velocity * 1;        // T最小=1
-                const LAMBDA_MAX = state.velocity * PERIOD_MAX; // ★あなたが導入した PERIOD_MAX を使う
-
-                const lambdaChoices = [];
-                for (let d of [-3, -2, -1, 1, 2, 3]) {
-                    const candidate = state.lambda + d * state.velocity; // ★整数制約に合わせて v刻みでずらす
-                    if (candidate >= LAMBDA_MIN && candidate <= LAMBDA_MAX) {
-                        lambdaChoices.push(candidate);
-                    }
-                }
-
-                // 候補が空にならない保険（端っこ対策）
-                if (lambdaChoices.length === 0) {
-                    lambdaChoices.push(Math.max(LAMBDA_MIN, Math.min(LAMBDA_MAX, state.lambda)));
-                }
-
-                state.answerLambda = lambdaChoices[Math.floor(Math.random() * lambdaChoices.length)];
-
-
-                /* ---------- T（周期）をランダムにずらす ---------- */
-                const periodChoices = [];
-                for (let d of [-2, -1, 1, 2]) {
-                    const candidate = state.period + d;
-                    if (candidate >= PERIOD_MIN && candidate <= PERIOD_MAX) periodChoices.push(candidate);
-                }
-                if (periodChoices.length === 0) periodChoices.push(state.period);
-                state.answerPeriod = periodChoices[Math.floor(Math.random() * periodChoices.length)];
-                state.answerLambda = state.velocity * state.answerPeriod; // ★これが一番安全（整数制約を絶対守れる）
-
-
-                /* ---------- 位相 φ をランダム ---------- */
-                const phaseStep = Math.PI / 2;
-                const phaseChoices = [-3, -2, -1, 1, 2, 3];
-                const k = phaseChoices[Math.floor(Math.random() * phaseChoices.length)];
-                state.answerPhase = k * phaseStep;
-
-                /* ---------- UI 同期 ---------- */
-                els.ansLambda.value = state.answerLambda;
-                els.ansPeriod.value = state.answerPeriod;
-                els.ansLambdaDisp.textContent = state.answerLambda.toFixed(1);
-                els.ansPeriodDisp.textContent = state.answerPeriod.toFixed(1);
+                // 従来通り：正解は現状の state.lambda/state.period を使用
+                // ただし回答の初期値はランダムにずらしたいならここで呼ぶ
+                // randomizeAnswerParams();
             }
 
+            // ★クイズ開始時：回答側を“間違い側”に散らしておきたいなら、ここで実行
+            randomizeAnswerParams();
+
+            // 表示切り替え（元のtoggleQuizMode末尾でやっていた処理と同等）
+            syncQuizUI();
+        }
+
+        // ===== 追加：クイズ終了 =====
+        function endQuiz() {
+            state.quizMode = null;
+            state.quizResult = null;
+
+            // 念のため回答側レンジも速度に合わせて同期
+            updateAnswerAllowedPairsBySpeed();
+
+            syncQuizUI();
+        }
+
+        // ===== 追加：UI同期を関数化（toggleQuizModeの末尾処理を移植） =====
+        function syncQuizUI() {
             // ボタン状態
             els.btnQuizYX.classList.toggle('active', state.quizMode === 'yx');
             els.btnQuizYT.classList.toggle('active', state.quizMode === 'yt');
+            if (els.btnQuizRand) els.btnQuizRand.classList.toggle('active', false);
 
             // クイズUI表示・非表示
             const quizOn = (state.quizMode !== null);
             els.quizControls.style.display = quizOn ? 'block' : 'none';
 
-            /* ===== 正解用パラメーターをクイズ中は隠す ===== */
-
-            // 数値表示（λ, T）
+            // 正解用パラメータ隠し
             els.valLambda.classList.toggle('hidden-value', quizOn);
             els.valPeriod.classList.toggle('hidden-value', quizOn);
-
-            // スライダー（λ, T）
             els.inpLambda.classList.toggle('hidden-control', quizOn);
             els.inpPeriod.classList.toggle('hidden-control', quizOn);
-
 
             // メッセージ
             els.msgYX.classList.toggle('active', state.quizMode === 'yx');
@@ -1033,6 +1034,24 @@
             els.resultYT.classList.remove('active');
             state.quizResult = null;
         }
+
+        // ===== 追加：ランダムクイズ（タイプも正解(λ,T)もランダム） =====
+        function startRandomQuiz() {
+            const type = (Math.random() < 0.5) ? 'yx' : 'yt';
+            beginQuiz(type, true);
+        }
+
+
+        // クイズモード切り替え（従来ボタン：正解(λ,T)は固定、モードだけ切替）
+        function toggleQuizMode(type) {
+            if (state.quizMode === type) {
+                endQuiz();
+            } else {
+                // 従来：正解は今の state.lambda/state.period を使う
+                beginQuiz(type, false);
+            }
+        }
+
 
 
 
@@ -1306,6 +1325,8 @@
         window.toggleQuizMode = toggleQuizMode;
         window.clearAnswer = clearAnswer;
         window.checkAnswer = checkAnswer;
+        window.startRandomQuiz = startRandomQuiz;
+
 
         // 初期化
         clearAnswer();
@@ -1316,6 +1337,3 @@
 </body>
 
 </html>
-
-
-
